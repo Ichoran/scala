@@ -42,6 +42,10 @@ class HashMap[A, +B] extends AbstractMap[A, B]
 {
   override def size: Int = 0
 
+  def prs: String = ""
+  def pr {}
+  def ident[C](h: HashMap[A,C]) = keys == h.keys
+
   override def empty = HashMap.empty[A, B]
 
   def iterator: Iterator[(A,B)] = Iterator.empty
@@ -63,6 +67,20 @@ class HashMap[A, +B] extends AbstractMap[A, B]
 
   def - (key: A): HashMap[A, B] =
     removed0(key, computeHash(key), 0)
+
+  override def filter(p: ((A, B)) => Boolean): HashMap[A, B] = {
+    val ans = filter0(false, p)
+    if (ans eq null) HashMap.empty[A, B]
+    else ans
+  }
+  
+  override def filterNot(p: ((A, B)) => Boolean): HashMap[A, B] = {
+    val ans = filter0(true, p)
+    if (ans eq null) HashMap.empty[A, B]
+    else ans
+  }
+  
+  protected def filter0(toss: Boolean, p:((A,B)) => Boolean): HashMap[A, B] = null
 
   protected def elemHashCode(key: A) = key.##
 
@@ -144,7 +162,7 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
   def empty[A, B]: HashMap[A, B] = EmptyHashMap.asInstanceOf[HashMap[A, B]]
 
   private object EmptyHashMap extends HashMap[Any, Nothing] { }
-
+  
   // utility method to create a HashTrieMap from two leaf HashMaps (HashMap1 or HashMapCollision1) with non-colliding hash code)
   private def makeHashTrieMap[A, B](hash0:Int, elem0:HashMap[A, B], hash1:Int, elem1:HashMap[A, B], level:Int, size:Int) : HashTrieMap[A, B] = {
     val index0 = (hash0 >>> level) & 0x1f
@@ -218,6 +236,9 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
     override def removed0(key: A, hash: Int, level: Int): HashMap[A, B] =
       if (hash == this.hash && key == this.key) HashMap.empty[A,B] else this
 
+    override def filter0(toss: Boolean, p: ((A, B)) => Boolean) =
+      if (!(toss ^ p(ensurePair))) null else this
+
     override def iterator: Iterator[(A,B)] = Iterator(ensurePair)
     override def foreach[U](f: ((A, B)) => U): Unit = f(ensurePair)
     // this method may be called multiple times in a multithreaded environment, but that's ok
@@ -259,6 +280,21 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
           new HashMapCollision1(hash, kvs1)
       } else this
 
+    override def filter0(toss: Boolean, p: ((A, B)) => Boolean) = {
+      val kvs1 = if (toss) kvs.filterNot(p) else kvs.filter(p)
+      kvs1.size match {
+        case 0 =>
+          null
+        case 1 =>
+          val entry@(key,value) = kvs1.head
+          new HashMap1(key, hash, value, entry)
+        case x if x == kvs.size =>
+          this
+        case _ =>
+          new HashMapCollision1(hash, kvs1)
+      }
+    }
+
     override def iterator: Iterator[(A,B)] = kvs.iterator
     override def foreach[U](f: ((A, B)) => U): Unit = kvs.foreach(f)
     override def split: Seq[HashMap[A, B]] = {
@@ -275,10 +311,10 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
   }
 
   class HashTrieMap[A, +B](
-    private[collection] val bitmap: Int,
-    private[collection] val elems: Array[HashMap[A, B @uV]],
-    private[collection] val size0: Int
-  ) extends HashMap[A, B @uV] {
+    /*private[collection]*/ val bitmap: Int,
+    /*private[collection]*/ val elems: Array[HashMap[A, B @uV]],
+    /*private[collection]*/ val size0: Int
+  ) extends HashMap[A, B @uV]  {
 
     // assert(Integer.bitCount(bitmap) == elems.length)
     // assert(elems.length > 1 || (elems.length == 1 && elems(0).isInstanceOf[HashTrieMap[_,_]]))
@@ -373,6 +409,112 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
       } else {
         this
       }
+    }
+    
+    override def ident[C](h: HashMap[A, C]) = {
+      if (h.isInstanceOf[HashTrieMap[_,_]]) {
+        val htm = h.asInstanceOf[HashTrieMap[A, C]]
+        bitmap == htm.bitmap && size0 == htm.size0 && elems.length == htm.elems.length && elems.indices.forall(i => elems(i).ident(htm.elems(i)))
+      }
+      else super.ident(h)
+    }
+
+    override def filter0(toss: Boolean, p: ((A, B)) => Boolean): HashMap[A, B] = {
+      // First check if everything is kept
+      var i = 0
+      var first = elems(0).filter0(toss, p)
+      while ((first eq elems(i)) && i+1 < elems.length) {
+        i += 1
+        first = elems(i).filter0(toss, p)
+      }
+      if (i+1 == elems.length && (first eq elems(i))) return this
+      
+      // Then check if everything or all but one is rejected
+      val nSame = i
+      var iFirst = if (first eq null) -1 else nSame
+      var second = null: HashMap[A, B]
+      while ((second eq null) && i+1 < elems.length) {
+        i += 1
+        second = elems(i).filter0(toss, p)
+      }
+      val iSecond = if (second eq null) -1 else i
+      while (iFirst < 0 && i+1 < elems.length) {
+        i += 1
+        first = elems(i).filter0(toss, p)
+        if (first ne null) iFirst = i
+      }
+      if (i+1 == elems.length) {
+        def wrapIfNeeded(h: HashMap[A,B], n: Int) = {
+          if (h.isInstanceOf[HashTrieMap[_,_]]) {
+            var j = 0
+            var flag = 1
+            while ((bitmap & flag) != flag) flag <<= 1
+            while (j < n) {
+              flag <<= 1
+              while ((bitmap & flag) != flag) flag <<= 1
+              j += 1
+            }
+            new HashTrieMap(flag, Array[HashMap[A,B]](h), h.size)
+          }
+          else h
+        }
+        if (nSame==0) {
+          if (iFirst < 0) return wrapIfNeeded(second, iSecond)
+          else if (iSecond < 0) return wrapIfNeeded(first, iFirst)
+        }
+        else if (nSame==1 && iFirst<0 && iSecond<0) return wrapIfNeeded(elems(0), 0)
+      }
+      
+      // Now we know we have at least two items; pack them.
+      // Flags first
+      var found = nSame + (if (iFirst<0) 0 else 1) + (if (iSecond<0) 0 else 1)
+      var flag = 1
+      var j = 0
+      while (j < nSame) {
+        if ((bitmap & flag) == flag) j += 1
+        flag <<= 1
+      }
+      var bitmapNew = bitmap & (flag-1)
+      while (j <= i) {
+        if ((bitmap & flag) == flag) {
+          if (j==iFirst || j==iSecond) bitmapNew |= flag
+          j += 1
+        }
+        flag <<= 1
+      }
+      // Now data
+      var elemsNew = java.util.Arrays.copyOf(elems, elems.length - (i - found))
+      if (iFirst >= 0) {
+        if (iSecond >= 0) {
+          val fls = if (iFirst < iSecond) 0 else 1
+          elemsNew(nSame+fls) = first
+          elemsNew(nSame+(1-fls)) = second
+        }
+        else elemsNew(nSame) = first
+      }
+      else if (iSecond >= 0) elemsNew(nSame) = second
+      // Now scan the rest
+      j = found
+      while (i+1 < elems.length) {
+        i += 1
+        while ((bitmap & flag) != flag) flag <<= 1
+        val temp = elems(i).filter0(toss, p)
+        if (temp ne null) {
+          bitmapNew |= flag
+          elemsNew(j) = temp
+          j += 1
+        }
+        flag <<= 1
+      }
+      // Pack data and find size
+      if (elemsNew.length > j) elemsNew = java.util.Arrays.copyOf(elemsNew, j)
+      var sizeNew = 0
+      i = 0
+      while (i < elemsNew.length) {
+        sizeNew += elemsNew(i).size
+        i += 1
+      }
+      new HashTrieMap(bitmapNew, elemsNew, sizeNew)
     }
 
     override def iterator: Iterator[(A, B)] = new TrieIterator[(A, B)](elems.asInstanceOf[Array[Iterable[(A, B)]]]) {
