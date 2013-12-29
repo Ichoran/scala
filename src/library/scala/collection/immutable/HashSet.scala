@@ -81,6 +81,20 @@ class HashSet[A] extends AbstractSet[A]
 
   protected def removed0(key: A, hash: Int, level: Int): HashSet[A] = this
 
+  override def filter(p: A => Boolean): HashSet[A] = {
+    val ans = filter0(false, p)
+    if (ans eq null) HashSet.empty[A]
+    else ans
+  }
+  
+  override def filterNot(p: A => Boolean): HashSet[A] = {
+    val ans = filter0(true, p)
+    if (ans eq null) HashSet.empty[A]
+    else ans
+  }
+  
+  protected def filter0(toss: Boolean, p: A => Boolean): HashSet[A] = null
+
   protected def writeReplace(): AnyRef = new HashSet.SerializationProxy(this)
 
 }
@@ -150,6 +164,9 @@ object HashSet extends ImmutableSetFactory[HashSet] {
     override def removed0(key: A, hash: Int, level: Int): HashSet[A] =
       if (hash == this.hash && key == this.key) HashSet.empty[A] else this
 
+    override def filter0(toss: Boolean, p: A => Boolean) =
+      if (!(toss ^ p(key))) null else this
+
     override def iterator: Iterator[A] = Iterator(key)
     override def foreach[U](f: A => U): Unit = f(key)
   }
@@ -177,7 +194,21 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           new HashSetCollision1(hash, ks1)
       } else this
 
-    override def iterator: Iterator[A] = ks.iterator
+     override def filter0(toss: Boolean, p: A => Boolean) = {
+      val ks1 = if (toss) ks.filterNot(p) else ks.filter(p)
+      ks1.size match {
+        case 0 =>
+          null
+        case 1 =>
+          new HashSet1(ks1.head, hash)
+        case x if x == ks.size =>
+          this
+        case _ =>
+          new HashSetCollision1(hash, ks1)
+      }
+    }
+
+   override def iterator: Iterator[A] = ks.iterator
     override def foreach[U](f: A => U): Unit = ks.foreach(f)
 
     private def writeObject(out: java.io.ObjectOutputStream) {
@@ -277,6 +308,104 @@ object HashSet extends ImmutableSetFactory[HashSet] {
       } else {
         this
       }
+    }
+
+    override def filter0(toss: Boolean, p: A => Boolean): HashSet[A] = {
+      // First check if everything is kept
+      var i = 0
+      var first = elems(0).filter0(toss, p)
+      while ((first eq elems(i)) && i+1 < elems.length) {
+        i += 1
+        first = elems(i).filter0(toss, p)
+      }
+      if (i+1 == elems.length && (first eq elems(i))) return this
+      
+      // Then check if everything or all but one is rejected
+      val nSame = i
+      var iFirst = if (first eq null) -1 else nSame
+      var second = null: HashSet[A]
+      while ((second eq null) && i+1 < elems.length) {
+        i += 1
+        second = elems(i).filter0(toss, p)
+      }
+      val iSecond = if (second eq null) -1 else i
+      while (iFirst < 0 && i+1 < elems.length) {
+        i += 1
+        first = elems(i).filter0(toss, p)
+        if (first ne null) iFirst = i
+      }
+      if (i+1 == elems.length) {
+        def wrapIfNeeded(h: HashSet[A], n: Int) = {
+          if (h.isInstanceOf[HashTrieSet[_]]) {
+            var j = 0
+            var flag = 1
+            while ((bitmap & flag) != flag) flag <<= 1
+            while (j < n) {
+              flag <<= 1
+              while ((bitmap & flag) != flag) flag <<= 1
+              j += 1
+            }
+            new HashTrieSet(flag, Array[HashSet[A]](h), h.size)
+          }
+          else h
+        }
+        if (nSame==0) {
+          if (iFirst < 0) return wrapIfNeeded(second, iSecond)
+          else if (iSecond < 0) return wrapIfNeeded(first, iFirst)
+        }
+        else if (nSame==1 && iFirst<0 && iSecond<0) return wrapIfNeeded(elems(0), 0)
+      }
+      
+      // Now we know we have at least two items; pack them.
+      // Flags first
+      var found = nSame + (if (iFirst<0) 0 else 1) + (if (iSecond<0) 0 else 1)
+      var flag = 1
+      var j = 0
+      while (j < nSame) {
+        if ((bitmap & flag) == flag) j += 1
+        flag <<= 1
+      }
+      var bitmapNew = bitmap & (flag-1)
+      while (j <= i) {
+        if ((bitmap & flag) == flag) {
+          if (j==iFirst || j==iSecond) bitmapNew |= flag
+          j += 1
+        }
+        flag <<= 1
+      }
+      // Now data
+      var elemsNew = java.util.Arrays.copyOf(elems, elems.length - (i - found))
+      if (iFirst >= 0) {
+        if (iSecond >= 0) {
+          val fls = if (iFirst < iSecond) 0 else 1
+          elemsNew(nSame+fls) = first
+          elemsNew(nSame+(1-fls)) = second
+        }
+        else elemsNew(nSame) = first
+      }
+      else if (iSecond >= 0) elemsNew(nSame) = second
+      // Now scan the rest
+      j = found
+      while (i+1 < elems.length) {
+        i += 1
+        while ((bitmap & flag) != flag) flag <<= 1
+        val temp = elems(i).filter0(toss, p)
+        if (temp ne null) {
+          bitmapNew |= flag
+          elemsNew(j) = temp
+          j += 1
+        }
+        flag <<= 1
+      }
+      // Pack data and find size
+      if (elemsNew.length > j) elemsNew = java.util.Arrays.copyOf(elemsNew, j)
+      var sizeNew = 0
+      i = 0
+      while (i < elemsNew.length) {
+        sizeNew += elemsNew(i).size
+        i += 1
+      }
+      new HashTrieSet(bitmapNew, elemsNew, sizeNew)
     }
 
     override def iterator = new TrieIterator[A](elems.asInstanceOf[Array[Iterable[A]]]) {
