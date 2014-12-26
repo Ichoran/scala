@@ -437,7 +437,16 @@ trait TraversableLike[+A, +Repr] extends Any
    *  @return  the first element of this $coll if it is nonempty,
    *           `None` if it is empty.
    */
-  def headOption: Option[A] = if (isEmpty) None else Some(head)
+  def headOption: Option[A] = {
+    var result: Option[A] = None
+    breakable {
+      for (x <- this) {
+        result = Some(x)
+        break
+      }
+    }
+    result
+  }
 
   /** Selects all elements except the first.
    *  $orderDependent
@@ -456,10 +465,13 @@ trait TraversableLike[+A, +Repr] extends Any
     * @throws NoSuchElementException If the $coll is empty.
     */
   def last: A = {
-    var lst = head
-    for (x <- this)
+    var lst = null.asInstanceOf[A]
+    var found = false
+    for (x <- this) {
+      found = true
       lst = x
-    lst
+    }
+    if (!found) throw new NoSuchElementException("empty.last") else lst
   }
 
   /** Optionally selects the last element.
@@ -467,8 +479,17 @@ trait TraversableLike[+A, +Repr] extends Any
    *  @return  the last element of this $coll$ if it is nonempty,
    *           `None` if it is empty.
    */
-  def lastOption: Option[A] = if (isEmpty) None else Some(last)
-
+  def lastOption: Option[A] = {
+    var lst: A = null.asInstanceOf[A]
+    var found = false
+    for (x <- this) {
+      found = true
+      lst = x
+    }
+    if (!found) None else Some(lst)
+  }
+    
+    
   /** Selects all elements except the last.
    *  $orderDependent
    *  @return  a $coll consisting of all elements of this $coll
@@ -476,17 +497,18 @@ trait TraversableLike[+A, +Repr] extends Any
    *  @throws UnsupportedOperationException if the $coll is empty.
    */
   def init: Repr = {
-    if (isEmpty) throw new UnsupportedOperationException("empty.init")
-    var lst = head
-    var follow = false
-    val b = newBuilder
-    b.sizeHint(this, -1)
+    var lst = null.asInstanceOf[A]
+    var b: Builder[A, Repr] = null
     for (x <- this) {
-      if (follow) b += lst
-      else follow = true
+      if (b != null) b += lst
+      else {
+        b = newBuilder
+        b.sizeHint(this, -1)
+      }
       lst = x
     }
-    b.result
+    if (b == null) throw new UnsupportedOperationException("empty.init")
+    else b.result
   }
 
   def take(n: Int): Repr = slice(0, n)
