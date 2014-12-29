@@ -108,9 +108,14 @@ object Iterator {
   def range(start: Int, end: Int, step: Int): Iterator[Int] = new AbstractIterator[Int] {
     if (step == 0) throw new IllegalArgumentException("zero step")
     private var i = start
-    def hasNext: Boolean = (step <= 0 || i < end) && (step >= 0 || i > end)
+    def hasNext: Boolean = i != end && ((end > i) == (step > 0))  // Sign of jump to end must be same as step
     def next(): Int =
-      if (hasNext) { val result = i; i += step; result }
+      if (hasNext) {
+        val result = i
+        val i1 = i + step
+        i = if ((i1 > i) == (step > 0)) i1 else end    // Catch overflow
+        result
+      }
       else empty.next()
   }
 
