@@ -155,6 +155,16 @@ self =>
    *              set that are not also contained in the given set `that`.
    */
   def diff(that: GenSet[A]): This = this -- that
+  
+  // Utility method for packing self in an array of AnyRefs (useful for subsets)
+  private def toAnyRefArray: Array[AnyRef] = {
+    val arr = new Array[AnyRef](self.size)
+    if (arr.length > 0) {
+      var i = 0
+      self.foreach{ a => arr(i) = a.asInstanceOf[AnyRef]; i += 1 }
+    }
+    arr
+  }
 
   /** An iterator over all subsets of this set of the given size.
    *  If the requested size is impossible, an empty iterator is returned.
@@ -164,7 +174,7 @@ self =>
    */
   def subsets(len: Int): Iterator[This] = {
     if (len < 0 || len > size) Iterator.empty
-    else new SubsetsItr(self.toIndexedSeq, len)
+    else new SubsetsItr(self.toAnyRefArray, len)
   }
 
   /** An iterator over all subsets of this set.
@@ -172,20 +182,21 @@ self =>
    *  @return     the iterator.
    */
   def subsets: Iterator[This] = new AbstractIterator[This] {
-    private val elms = self.toIndexedSeq
-    private var len = 0
+    private var elms = self.toAnyRefArray
+    // Keep track of number to skip instead of number to return so we can null out array when we're done
+    private var skip = elms.length
     private var itr: Iterator[This] = Iterator.empty
 
-    def hasNext = len <= elms.size || itr.hasNext
+    def hasNext = skip >= 0 || itr.hasNext
     def next = {
       if (!itr.hasNext) {
-        if (len > elms.size) Iterator.empty.next()
+        if (skip < 0) Iterator.empty.next()
         else {
-          itr = new SubsetsItr(elms, len)
-          len += 1
+          itr = new SubsetsItr(elms, elms.length - skip)
+          skip -= 1
+          if (skip < 0) elms = null
         }
       }
-
       itr.next()
     }
   }
@@ -197,18 +208,24 @@ self =>
    *  @author Eastsun
    *  @date 2010.12.6
    */
-  private class SubsetsItr(elms: IndexedSeq[A], len: Int) extends AbstractIterator[This] {
+  private class SubsetsItr(elms: Array[AnyRef], len: Int) extends AbstractIterator[This] {
     private val idxs = Array.range(0, len+1)
     private var _hasNext = true
-    idxs(len) = elms.size
+    idxs(len) = elms.length
 
     def hasNext = _hasNext
     def next(): This = {
       if (!hasNext) Iterator.empty.next()
 
-      val buf = self.newBuilder
-      idxs.slice(0, len) foreach (idx => buf += elms(idx))
-      val result = buf.result()
+      val result = {
+        val buf = self.newBuilder
+        var i = 0
+        while (i < len) {
+          buf += elms(idxs(i)).asInstanceOf[A]
+          i += 1
+        }
+        buf.result
+      }
 
       var i = len - 1
       while (i >= 0 && idxs(i) == idxs(i+1)-1) i -= 1
@@ -216,8 +233,11 @@ self =>
       if (i < 0) _hasNext = false
       else {
         idxs(i) += 1
-        for (j <- (i+1) until len)
+        var j = i+1
+        while (j < len) {
           idxs(j) = idxs(j-1) + 1
+          j += 1
+        }
       }
 
       result
