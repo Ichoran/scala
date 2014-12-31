@@ -127,10 +127,14 @@ trait TraversableOnce[+A] extends Any with GenTraversableOnce[A] {
    *              value for which it is defined, or `None` if none exists.
    *  @example    `Seq("a", 1, 5L).collectFirst({ case x: Int => x*10 }) = Some(10)`
    */
-  def collectFirst[B](pf: PartialFunction[A, B]): Option[B] = {
-    // make sure to use an iterator or `seq`
-    self.toIterator.foreach(pf.runWith(b => return Some(b)))
-    None
+  def collectFirst[B](pf: PartialFunction[A, B]): Option[B] = self match {
+    case it: Iterable[_] => 
+      // Defer to presumably efficient iterator implementation
+      self.toIterator.collectFirst(pf)
+    case _ => 
+      // If we are not an iterable, sequential traversal is probably cheaper than generic iterator creation
+      self.foreach(pf.runWith(b => return Some(b)))      
+      None
   }
 
   def /:[B](z: B)(op: (B, A) => B): B = foldLeft(z)(op)
@@ -234,6 +238,7 @@ trait TraversableOnce[+A] extends Any with GenTraversableOnce[A] {
     }
     maxElem
   }
+
   def minBy[B](f: A => B)(implicit cmp: Ordering[B]): A = {
     if (isEmpty)
       throw new UnsupportedOperationException("empty.minBy")
