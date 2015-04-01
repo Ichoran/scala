@@ -33,6 +33,8 @@ extends SeqView[A, Coll]
   trait FlatMapped[B] extends super.FlatMapped[B] with Transformed[B]
 
   trait Appended[B >: A] extends super.Appended[B] with Transformed[B]
+  
+  trait Prepended[B >: A] extends super.Prepended[B] with Transformed[B]
 
   trait Filtered extends super.Filtered with Transformed[A]
 
@@ -47,8 +49,6 @@ extends SeqView[A, Coll]
   trait Reversed extends super.Reversed with Transformed[A]
 
   trait Patched[B >: A] extends super.Patched[B] with Transformed[B]
-
-  trait Prepended[B >: A] extends super.Prepended[B] with Transformed[B]
 
   /** boilerplate */
   protected override def newForced[B](xs: => scala.collection.GenSeq[B]): Transformed[B] = new { val forced = xs } with AbstractTransformed[B] with Forced[B]

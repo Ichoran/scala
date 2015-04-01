@@ -36,6 +36,14 @@ trait IterableViewLike[+A,
         with TraversableViewLike[A, Coll, This]
 { self =>
 
+  private def asThat[B, That](that: Transformed[B], bf: CanBuildFrom[This, B, That]): That = bf match {
+    case _: TraversableView.CanBuildView => that.asInstanceOf[That]
+    case _ =>
+      val b = bf(this.asInstanceOf[This])
+      b ++= that
+      b.result()
+  }
+
   /** Explicit instantiation of the `Transformed` trait to reduce class file size in subclasses. */
   private[collection] abstract class AbstractTransformed[+B] extends Iterable[B] with super[TraversableViewLike].Transformed[B] with Transformed[B]
 
