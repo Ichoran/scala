@@ -9,6 +9,8 @@
 package scala
 package collection
 
+import language.higherKinds
+
 import generic._
 import Seq.fill
 
@@ -211,6 +213,15 @@ trait SeqViewLike[+A,
     val patch = _patch
     val replaced = _replaced
   } with AbstractTransformed[B] with Patched[B]
+  
+  protected def asThat[B >: A, That, FromThis <: Traversable[B]](that: FromThis, bf: CanBuildFrom[This, B, That]): That = {
+    if (bf eq SeqView.dummySeqViewCBF) that.asInstanceOf[That]
+    else {
+      val b = bf()
+      that.foreach{ x => b += x }
+      b.result()
+    }
+  }
 
   // see comment in IterableViewLike.
   protected override def newTaken(n: Int): Transformed[A] = newSliced(SliceInterval(0, n))
@@ -222,7 +233,7 @@ trait SeqViewLike[+A,
     // Be careful to not evaluate the entire sequence!  Patch should work (slowly, perhaps) on infinite streams.
     val nonNegFrom = math.max(0,from)
     val nonNegRep = math.max(0,replaced)
-    newPatched(nonNegFrom, patch, nonNegRep).asInstanceOf[That]
+    asThat(newPatched(nonNegFrom, patch, nonNegRep), bf)
 // was:    val b = bf(repr)
 //    if (b.isInstanceOf[NoBuilder[_]]) newPatched(from, patch, replaced).asInstanceOf[That]
 //    else super.patch[B, That](from, patch, replaced)(bf)
