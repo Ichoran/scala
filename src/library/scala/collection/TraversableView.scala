@@ -27,10 +27,15 @@ object TraversableView {
     def result() = throw new UnsupportedOperationException("TraversableView.Builder.result")
     def clear() {}
   }
+  
   type Coll = TraversableView[_, C] forSome {type C <: Traversable[_]}
-  implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, TraversableView[A, Traversable[_]]] =
-    new CanBuildFrom[Coll, A, TraversableView[A, Traversable[_]]] {
-      def apply(from: Coll) = new NoBuilder
-      def apply() = new NoBuilder
-    }
+  
+  private[collection] trait CanBuildView
+  
+  private[collection] val genericWitnessCBF = new CanBuildView with CanBuildFrom[Coll, Any, TraversableView[Nothing, Traversable[_]]] {
+    def apply(from: Coll) = new NoBuilder
+    def apply() = new NoBuilder
+  }
+    
+  implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, TraversableView[A, Traversable[_]]] = genericWitnessCBF
 }

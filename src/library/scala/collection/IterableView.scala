@@ -23,10 +23,12 @@ trait IterableView[+A, +Coll] extends IterableViewLike[A, Coll, IterableView[A, 
  *  `IterableView`s work. Its definitions are generally not accessed directly by clients.
  */
 object IterableView {
-  type Coll = TraversableView[_, C] forSome {type C <: Traversable[_]}
-  implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, IterableView[A, Iterable[_]]] =
-    new CanBuildFrom[Coll, A, IterableView[A, Iterable[_]]] {
-      def apply(from: Coll) = new NoBuilder
-      def apply() = new NoBuilder
-    }
+  type Coll = IterableView[_, C] forSome {type C <: Iterable[_]}
+  
+  private[collection] val genericWitnessCBF = new TraversableView.CanBuildView with CanBuildFrom[Coll, Any, IterableView[Nothing, Iterable[_]]] {
+    def apply(from: Coll) = new NoBuilder
+    def apply() = new NoBuilder
+  }
+  
+  implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, IterableView[A, Iterable[_]]] = genericWitnessCBF
 }

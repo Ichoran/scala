@@ -24,10 +24,11 @@ trait SeqView[+A, +Coll] extends SeqViewLike[A, Coll, SeqView[A, Coll]]
  */
 object SeqView {
   type Coll = SeqView[_, C] forSome {type C <: Seq[_]}
-  private[collection] val dummySeqViewCBF = new CanBuildFrom[Coll, Any, SeqView[Nothing, Seq[_]]] {
+  
+  private[collection] val genericWitnessCBF = new TraversableView.CanBuildView with CanBuildFrom[Coll, Any, SeqView[Nothing, Seq[_]]] {
     def apply(from: Coll) = new NoBuilder
     def apply() = new NoBuilder
   }
-  implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, SeqView[A, Seq[_]]] = dummySeqViewCBF
+  implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, SeqView[A, Seq[_]]] = genericWitnessCBF
 }
 

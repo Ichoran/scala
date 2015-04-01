@@ -189,8 +189,8 @@ trait SeqViewLike[+A,
     final override protected[this] def viewIdentifier = "P"
   }
 
-  /** Boilerplate method, to override in each subclass
-   *  This method could be eliminated if Scala had virtual classes
+  /** Boilerplate methods; need to override in each subclass.
+   *  These methods could be eliminated if Scala had virtual classes (among other ways)
    */
   protected override def newForced[B](xs: => GenSeq[B]): Transformed[B] = new { val forced = xs } with AbstractTransformed[B] with Forced[B]
   protected override def newAppended[B >: A](that: GenTraversable[B]): Transformed[B] = new { val rest = that } with AbstractTransformed[B] with Appended[B]
@@ -214,13 +214,12 @@ trait SeqViewLike[+A,
     val replaced = _replaced
   } with AbstractTransformed[B] with Patched[B]
   
-  protected def asThat[B >: A, That, FromThis <: Traversable[B]](that: FromThis, bf: CanBuildFrom[This, B, That]): That = {
-    if (bf eq SeqView.dummySeqViewCBF) that.asInstanceOf[That]
-    else {
+  protected def asThat[B, That](that: Transformed[B], bf: CanBuildFrom[This, B, That]): That = bf match {
+    case _: TraversableView.CanBuildView => that.asInstanceOf[That]
+    case _ =>
       val b = bf()
-      that.foreach{ x => b += x }
+      b ++= that
       b.result()
-    }
   }
 
   // see comment in IterableViewLike.
@@ -251,13 +250,13 @@ trait SeqViewLike[+A,
   }
 
   override def +:[B >: A, That](elem: B)(implicit bf: CanBuildFrom[This, B, That]): That =
-    newPrepended(elem :: Nil).asInstanceOf[That]
+    asThat(newPrepended(elem :: Nil), bf)
 
   override def :+[B >: A, That](elem: B)(implicit bf: CanBuildFrom[This, B, That]): That =
     ++(Iterator.single(elem))(bf)
 
   override def union[B >: A, That](that: GenSeq[B])(implicit bf: CanBuildFrom[This, B, That]): That =
-    newForced(thisSeq union that).asInstanceOf[That]
+    asThat(newForced(thisSeq union that), bf)
 
   override def diff[B >: A](that: GenSeq[B]): This =
     newForced(thisSeq diff that).asInstanceOf[This]
