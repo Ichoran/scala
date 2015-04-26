@@ -1,6 +1,6 @@
 /*                     __                                               *\
 **     ________ ___   / /  ___     Scala API                            **
-**    / __/ __// _ | / /  / _ |    (c) 2003-2013, LAMP/EPFL             **
+**    / __/ __// _ | / /  / _ |    (c) 2003-2015, LAMP/EPFL             **
 **  __\ \/ /__/ __ |/ /__/ __ |    http://scala-lang.org/               **
 ** /____/\___/_/ |_/____/_/ | |                                         **
 **                          |/                                          **
@@ -19,10 +19,36 @@ import scala.language.implicitConversions
 
 /** A non-strict view of a mutable `IndexedSeq`.
  *  $viewInfo
- *  Some of the operations of this class will yield again a mutable indexed sequence,
- *  others will just yield a plain indexed sequence of type `collection.IndexedSeq`.
- *  Because this is a leaf class there is no associated `Like` class.
- *  @author Martin Odersky
+ *  All of the operations of this class will yield a new mutable view of a mutable
+ *  indexed sequence.
+ *
+ *  Mutating a view can lead to non-intuitive results and should be done with caution.  If
+ *  mutation is not desired, the `toSeqView` method can convert this view to one that does
+ *  not support mutable updates.
+ *
+ *  Methods that select a subset of elements, including `filter`, `slice`, and `takeWhile`,
+ *  will propagate updates to the underlying mutable sequence.  Note that choices of which
+ *  elements are selected are final once made.  For example, if you filter out some elements
+ *  and then set the remaining ones to values that would have been filtered, the view will
+ *  include the values you have set.
+ *
+ *  Methods that add to the available set of elements, including `++` and `union`, will
+ *  not propagate updates, with one exception: `join` can be used to join multiple views
+ *  of mutable sequences that store the same type; the joined view will update both
+ *  underlying views as needed.
+ *
+ *  Methods that can alter the type of stored elements, including `map`, `collect`, and `zip`,
+ *  will not alter the underlying collection.
+ *
+ *  If the underlying collection is not modified, updates will still be recorded and
+ *  maintained in a map.  It is not highly efficient to maintain large numbers of updates.
+ *  Instead, it is usually preferable to create a new eagerly evaluated mutable collection.
+ *
+ *  If a series of operations are called that prevent the underlying collection from being
+ *  mutated, the string representation of the view will mark the last such operation with
+ *  an asterisk.
+ *
+ *  @author Martin Odersky, Rex Kerr
  *  @version 2.8
  *  @since   2.8
  *  @tparam A    the element type of the view
@@ -45,6 +71,25 @@ self =>
 
   /** Explicit instantiation of the `Transformed` trait to reduce class file size in subclasses. */
   private[collection] abstract class AbstractTransformed[B] extends super.AbstractTransformed[B] with Transformed[B]
+  
+  trait Joined[A] extends Transformed[A] {
+    def lhs: IndexedSeqView[A, Coll]
+    def rhs: IndexedSeqView[A, _]
+    override def length = lhs.length + rhs.length
+    override def apply(idx: Int) =
+      if (idx < lhs.length) lhs.apply(idx)
+      else rhs.apply(idx-lhs.length)
+    override def update(idx: Int, elem: A) =
+      if (idx < lhs.length) lhs.update(idx, elem)
+      else rhs.update(idx - lhs.length, elem)
+    override def foreach[U](f: A => U) = { lhs.foreach(f); rhs.foreach(f) }
+    final override protected[this] def viewIdentifier = "J"
+  }
+  
+  def join[Coll2](that: IndexedSeqView[A, Coll2]): IndexedSeqView[A, Coll] = new Joined[A] {
+    def lhs = self
+    def rhs = that
+  }
   
   trait UpdatedTransform[B] extends Transformed[B] {
     protected[this] var updates: LongMap[B] = null

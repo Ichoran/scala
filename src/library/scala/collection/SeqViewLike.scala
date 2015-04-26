@@ -107,17 +107,41 @@ trait SeqViewLike[+A,
   }
 
   trait Filtered extends super.Filtered with Transformed[A] {
-    protected[this] lazy val index = {
-      var len = 0
-      val arr = new Array[Int](self.length)
-      for (i <- 0 until self.length)
-        if (pred(self(i))) {
-          arr(len) = i
-          len += 1
+    private var nextToCheck = 0
+    private var countSoFar = 0
+    private var complete = false
+    private var myIndices: Array[Int] = null
+    private def findAtLeast(i: Int): Unit = {
+      val L = self.length
+      if (myIndices eq null) myIndices = new Array[Int](math.max(4, (L+7) / 8))
+      while (countSoFar <= i && nextToCheck < L) {
+        if (pred(self(nextToCheck))) {
+          if (indicesPassed >= myIndices.length) {
+            myIndices = java.util.Arrays.copyOf(myIndices, math.min(myIndices.length*2L, myIndices.length + (L-lastIndexChecked)).toInt)
+          }
+          myIndices(indicesPassed) = nextIndexChecked
+          indicesPassed += 1
         }
-      arr take len
+        nextIndexChecked += 1
+      }
+      if (nextIndexChecked >= L) {
+        complete = true
+        if (myIndices.length - (myIndices.length + 7)/8 - 4 < indicesPassed) myIndices = java.util.Arrays.copyOf(myIndices, indicesPassed)
+      }
     }
-    def length = index.length
+    protected[this] def index(i: Int): Int = {
+      if (!complete && i >= indicesPassed) findAtLeast(i)
+      myIndices(i)
+    }
+    def iterator: Iterator[A] = new AbstractIterator[A] {
+      private[this] var idx = 0
+      def hasNext = (idx < indicesPassed) || (!complete && findAtLeast(idx+1))
+      def next = if (hasNext) myIndices(idx) else throw new NoSuchElementException("Filtered SeqView iterator next")
+    }
+    def length = {
+      if (!complete) findAtLeast(Int.MaxValue)
+      indicesPassed
+    }
     def apply(idx: Int) = self(index(idx))
   }
 
