@@ -14,9 +14,6 @@ package scala
 package collection
 package immutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-import java.util
-
 import scala.collection.mutable.{Builder, ReusableBuilder}
 import scala.annotation.switch
 import scala.annotation.unchecked.uncheckedVariance
